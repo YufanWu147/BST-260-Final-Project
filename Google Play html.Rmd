@@ -1,0 +1,947 @@
+---
+title: "Google Play Store Apps Data Analysis"
+author: "Angela Koh, Yufan Wu, Yunhong Wu"
+header-includes:
+output:
+  html_document:
+    keep_md: true
+    toc: true
+    toc_float: false
+    number_sections: true
+---
+<style type="text/css">
+.math {
+  font-size: small;
+}
+body{ /* Normal  */
+      font-size: 16px;
+      color:#6B6B6B;
+      font-family:"Cambria";
+      line-height:1.5em;
+      padding:1.2em;
+      margin:auto;
+      max-width:80em;
+      background:'white';
+  }
+td {  /* Table  */
+  font-size: 16px;
+  border-bottom: 1.25px solid black;
+}
+th {
+  background-color: #008b8b;
+  color: white;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  color: DarkBlue;
+}
+</style>
+```{r,message=FALSE, warning=FALSE, echo = FALSE}
+#load packages and knitr global settings
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+library(ggplot2)
+library(stringr)
+library(broom)
+library(lubridate)
+library(car)
+library(leaps)
+library(glmnet)
+windowsFonts(Cambria = windowsFont("Cambria"))
+opts_chunk$set(message = FALSE, warning = FALSE, fig.align = "center", 
+               fig.pos = 'H', echo = FALSE, cache = TRUE, results = "hold")
+newtheme<-theme_light(base_family = "Cambria")+  #ggplot theme
+  theme(panel.grid = element_blank(),
+        axis.title = element_text(size = 10), 
+        axis.text = element_text(size = 8),
+        legend.position = "none", 
+        plot.title = element_text(size = 12, vjust = 0,hjust = 0.5, face = "bold"))
+newtheme2<-theme_light(base_family = "Cambria")+  #ggplot theme2
+  theme(panel.grid = element_blank(),
+        axis.title = element_text(size = 10), 
+        axis.text = element_text(size = 8),
+        legend.position = "bottom", 
+        plot.title = element_text(size = 12, vjust = 0,hjust = 0.5, face = "bold"))
+```
+# Overview and Motivation
+##Background
+In the 21st century, people use smartphone applications for diverse needs in their daily lives such as connecting with friends, ordering food, sending money, and playing games. In early 2017, mobile apps accounted for nearly half of global internet traffic and will continue to grow rapidly. For users, they would download and use applications after evaluating factors such as popularity, price, ratings, and reviews, etc. In this project, we would like to analyze the customer trend statistically and confirm if the criteria we use to choose the best application align with the actual success in application. To be more specific, we are interested in analyzing whether features such as category, number of reviews, price, size, rating age, current version, and android version of each application would affect its ratings. Ultimately, we would like to give advice to the app developers for their newly developing applications because it’s important for businesses to understand what consumers do and do not prefer in order to create a successful app. For app developer, if they can predict the overall ratings and the number of downloads, they can optimize the design of apps in advance.
+
+## Goals
+The goals of this project is to analyze current customer trend in application usage using the Google Play Store App Ratings Data to guide the app developers on improving their newly developed applications, thus driving growth and retention of future user. 
+
+##Benefits
+* Learn to perform data wrangling, data visualization, and data mining with the real-world data scraped from the Google Play Store 
+* Explore the potential associations or correlations among the explanatory variables.
+* Confirming whether the high overall ratings are associated with category, number of reviews, size,  number of installs, Type, Content Rating, Current Version, Android Version
+* Provide guide for application developing industry to develop more profitable and trend-fitting applications
+* How do the explanatory variables contribute to the user ratings?
+    * Are there certain categories (or content ratings) that receive substantially high ratings or high number of downloads than the other?
+    * Do free apps have higher ratings?
+    * Do number of installs and number of reviews guarantee high ratings?
+    * Will application size affect its popularity?
+
+# Related Work
+Google play store often recommend [top apps](https://play.google.com/store/apps/top?hl=en) to Android users and we would like to discover the reason behind the high rating of those popular apps.
+
+# Initial Questions
+* How do the explanatory variables contribute to the user ratings?
+* Are there certain categories (or content ratings) that receive substantially high ratings or high number of downloads than the other?
+* Do free apps have higher ratings?
+* Do number of installs and number of reviews guarantee high ratings?
+* Will application size affect its popularity?
+* Do developers need to update the applications frequently in order to get higher number of downloads or ratings? 
+
+# Data
+## Source
+We collected the data from [kaggle website for public use](https://www.kaggle.com/lava18/google-play-store-apps#googleplaystore.csv). The data is web scraped data of 10k Play Store apps for analysing the Android market, and includes data of category, rating, reviews, size, number of installs, type, price, rating age, last updated date, current version, and android version for each application.
+
+## Data Cleaning
+
+```{r setup, include=FALSE}
+load("app.RData")
+#There's one weird row in the data
+index=which(app$Price=="Everyone")
+for(i in c(13:11,9:2)){app[index,i]=app[index,i-1]}
+app[index,"Category"]=NA
+app[index,"Genres"]=NA
+```
+
+```{r}
+##Delete NAs in Dataset
+##Delete observations with "Varies with device" in Size
+##Covert `Size` from character to numeric (e.g. 2.5M to 2.5); 
+##Convert the unit of Size (k to M); save it as a new column "Size_num"
+##Round Android Version to 1 decimal; save it as a new column Android.Ver_new
+##There's one row in "Reviews" with value 3.0M -> 3,000,000
+##Reorder the level of installs
+##Convert Last.Updated into standard format of time; get its year and month
+##Combine some levels of Installs
+version<-function(x)
+{vclean<-as.numeric(str_extract(x, pattern = "[0-9]+\\.[0-9]+"))
+ vclean_new<-ifelse(vclean > 50, 
+                     as.numeric(str_extract(x, pattern = "[0-9]+\\.[0-9]+$")),
+                     vclean)
+ round(vclean_new,0)}
+
+Reviews_discrete<-function(reviews)
+{
+  if(reviews<100) {return("<100")}
+  else if(reviews<1000) {return("100~<1K")}
+  else if(reviews<10000) {return("1K~<10K")}
+}
+
+google<-app%>%
+  filter(!is.na(Rating))%>%
+  filter(Size != "Varies with device")%>%
+  filter(Current.Ver != "Varies with device")%>%
+  filter(Android.Ver != "Varies with device")%>%
+  mutate(Reviews = ifelse(Reviews == "3.0M", 3*1E6, as.numeric(Reviews)))%>%
+  mutate(Size = ifelse(str_sub(Size, -1, -1)=="k",
+                       as.numeric(str_sub(Size, 1, -2))/1024,
+                       as.numeric(str_sub(Size, 1, -2))))%>%
+  mutate(Android.Ver = as.numeric(str_sub(Android.Ver, 1, 3)))%>%
+  mutate(Android.Ver = round(Android.Ver,0))%>%
+  mutate(Last.Updated = parse_date_time(Last.Updated,orders=c("bdy")))%>%
+  mutate(Last.Updated_date = date(Last.Updated),
+         Last.Updated_year = year(Last.Updated),
+         Last.Updated_month = month(Last.Updated))%>%
+  mutate(Price = ifelse(Price == 0, 0, as.numeric(str_sub(Price, start = 2))))%>%
+  mutate(Installs  = recode(Installs,
+                           "c('0+','1+','5+','10+','50+','100+','500+')='<1K';
+                            c('1,000+','5,000+')='1K~10K';
+                            c('10,000+','50,000+')='10K~100K';
+                            c('100,000+','500,000+')='100K~1M';
+                            c('1,000,000+','5,000,000+')='1M~10M';
+                            c('10,000,000+','50,000,000+')='10M~100M';
+                    c('100,000,000+','500,000,000+','1,000,000,000+')='>100M'"))%>%
+  mutate(Installs = factor(Installs, levels = c("<1K", "1K~10K","10K~100K", 
+                          "100K~1M", "1M~10M","10M~100M",">100M")))%>%
+  mutate(Category = recode(Category, 
+         "c('NEWS_AND_MAGAZINES','PHOTOGRAPHY', 'VIDEO_PLAYERS') = 'Media&Video';
+          c('MAPS_AND_NAVIGATION', 'TRAVEL_AND_LOCAL', 'WEATHER') = 'Transportation';
+          c('ENTERTAINMENT', 'EVENTS', 'GAME', 'COMICS', 'SPORTS') = 'Entertainment';
+          c('SOCIAL', 'DATING', 'COMMUNICATION') = 'Social';
+          c('EDUCATION', 'BOOKS_AND_REFERENCE', 'LIBRARIES_AND_DEMO','MEDICAL',         
+            'PARENTING', 'BUSINESS', 'FINANCE')= 'Information';
+          c('LIFESTYLE', 'AUTO_AND_VEHICLES', 'BEAUTY','FOOD_AND_DRINK', 
+            'HOUSE_AND_HOME','FAMILY','HEALTH_AND_FITNESS', 'SHOPPING') = 'Lifestyle';
+          c('PRODUCTIVITY', 'ART_AND_DESIGN', 'TOOLS',
+            'PERSONALIZATION') = 'Productivity'"))%>%
+  filter(!is.na(Category))%>%
+  mutate(Rating = as.numeric(Rating))%>%
+  filter(!is.na(Rating))%>%
+  mutate(Current.Ver = version(Current.Ver))%>%
+  filter(!is.na(Current.Ver) & Current.Ver <= 10)%>%
+  select(-Genres)
+
+
+google_unique<-google%>%
+  group_by(App)%>%
+  filter(n()==1)
+
+google_replicate<-google%>%
+  group_by(App)%>%
+  filter(n()>1)%>%
+  group_by(App)%>%
+  slice(1)
+
+google_clean<-rbind(google_unique, google_replicate)
+
+google_new<-google_clean%>%
+  filter(Price <= 200)%>%
+  filter(Content.Rating != "Unrated")%>%
+  mutate(Content.Rating = ifelse(Content.Rating %in% 
+                          c('Mature 17+','Adults only 18+'), 
+                            '17+', Content.Rating))%>%
+  mutate(Android.Ver = ifelse(is.nan(Android.Ver),7,Android.Ver))%>% #searched online
+  mutate(Android.Ver = as.character(Android.Ver))%>%
+  mutate(Android.Ver = ifelse(Android.Ver %in% c("1","2"), '<2', Android.Ver))%>%
+  mutate(Android.Ver = ifelse(Android.Ver %in% c("6","7","8"), '>6', Android.Ver))%>%
+  mutate(Android.Ver = factor(Android.Ver, levels = c("<2","3","4","5",">6")))
+
+google_new["Reviews_discrete"] = cut(google_new$Reviews, breaks = c(0, 10^c(2:6),
+                                     max(google_new$Reviews)),include.lowest = TRUE)
+
+google_new["Rating_scale"]<-(google_new$Rating-mean(google_new$Rating))/sd(google_new$Rating)
+google_new["Size_scale"]<-(google_new$Size-mean(google_new$Size))/sd(google_new$Size)
+```
+
+Below are the steps of data cleaning
+
+* Delete NAs in dataset
+* There are some weird apps developed by the same company called "I am rich"; all of these apps have `Price` over \$200. We decided to delete these observations.
+
+|            App           | Price(\$) |         App         | Price(\$) |
+|:------------------------:|:---------:|:-------------------:|:---------:|
+| most expensive app (H)   |   399.99  | I am rich VIP      |   299.99  |
+| I'm rich                 |  399.99   | I Am Rich Premium   |   399.99  |
+| I'm rich - Trump Edition |   400.00  | I am Extremely Rich |   379.99  |
+| I am rich                |   399.99  | I am Rich!          |   399.99  |
+| I am Rich Plus           |   399.99  | I am rich(premium)  |   399.99  |
+
+* Delete observations with "Varies with device" in `Size`, `Android Version` and `Current Version`
+* Unify the unit of `Size` (convert KB into MB); Covert `Size` from character to numeric (i.e. Delete the unit, e.g. 2.5M to 2.5)
+* Only keep the major number of `Android Version` (e.g. 6.1.2 to 6)
+* Combined some levels of `Android Version` (1, 2 to "<2"; 6, 7, 8 to ">6") since the sizes of some groups are too small
+* Combined some levels of `Content.Rating` ('Mature 17+' and 'Adults only 18+' to '17+') since the sizes of some groups are too small
+* Reorder and then combine levels of `Installs`
+
+| Original Levels of Installs              | Combined Levels of Installs |
+|------------------------------------------|:---------------------------:|
+| 0+,1+,5+,10+,50+,100+,500+               |            <1K              |
+| 1,000+,5,000+                            |           1K~10K            |
+| 10,000+,50,000+                          |          10K~100K           |
+| 100,000+,500,000+                        |           100K~1M           |
+| 1,000,000+,5,000,000+                    |           1M~10M            |
+| 10,000,000+,50,000,000+                  |           10M~100M          |
+| 100,000,000+,500,000,000+,1,000,000,000+ |            >100M            |
+
+* Combined some levels of `Category`
+
+| Original Levels of Category                                                                             	| Combined Levels of Category 	|
+|---------------------------------------------------------------------------------------------------------	|-----------------------------	|
+| NEWS_AND_MAGAZINES,PHOTOGRAPHY, VIDEO_PLAYERS                                                           	| Media&Video                 	|
+| MAPS_AND_NAVIGATION, TRAVEL_AND_LOCAL, WEATHER                                                          	| Transportation              	|
+| ENTERTAINMENT, EVENTS, GAME, COMICS, SPORTS                                                             	| Entertainment               	|
+| SOCIAL, DATING, COMMUNICATION                                                                           	| Social                      	|
+| EDUCATION, BOOKS_AND_REFERENCE, PARENTING, BUSINESS,<br>FINANCE, LIBRARIES_AND_DEMO, MEDICAL            	| Information                 	|
+| LIFESTYLE, AUTO_AND_VEHICLES,BEAUTY,FOOD_AND_DRINK,<br>HOUSE_AND_HOME,FAMILY,HEALTH_AND_FITNESS, SHOPPING 	| Lifestyle                   	|
+| PRODUCTIVITY, ART_AND_DESIGN, TOOLS, PERSONALIZATION                                                    	| Productivity                	|
+
+* Discretized continuous variable `Reviews` into 6 groups: $[0, 100), [100, 10^3), [10^3, 10^4), [10^4, 10^5), [10^5, 10^6), >10^6$
+* Standardized `Rating` and `Size`
+
+```{r,fig.width = 6, fig.height = 3, eval = FALSE}
+##Rating_________________________________________________________________________
+p_Rating<-ggplot(google_new)+
+  geom_histogram(aes(Rating), fill = "lightblue", color = "grey30",bins = 15)+
+  newtheme
+##Rating_scale__________________________________________________________________
+p_Rating_scale<-ggplot(google_new)+
+  geom_histogram(aes(Rating_scale), fill = "lightblue", color = "grey30", bins = 15)+
+  newtheme
+grid.arrange(p_Rating, p_Rating_scale, ncol = 2)
+
+
+p_Size<-ggplot(google_new)+
+  geom_histogram(aes(Size), fill = "lightblue", color = "grey30",bins = 15)+
+  newtheme
+##Size_scale__________________________________________________________________
+p_Size_scale<-ggplot(google_new)+
+  geom_histogram(aes(Size_scale), fill = "lightblue", color = "grey30", bins = 15)+
+  newtheme
+grid.arrange(p_Size, p_Size_scale, ncol = 2)
+```
+
+# Descriptive Statistic
+The table below shows the variables used in this study. The baseline levels of discrete variables are in bold.
+
+
+| Variable Name   	| Description                             	| Values                                                                                        	|
+|-----------------	|-----------------------------------------	|-----------------------------------------------------------------------------------------------	|
+|      Rating     	| Overall user rating of the app          	| Before standardization[1, 5]; after standardization[-5.615, 1.494]                            	|
+|     Category    	| Category the app belongs to             	| **Entertainment**, Information, Lifestyle,<br>Media&Video,  Productivity, Social, Transportation 	|
+|     Reviews     	| Number of user reviews                  	| **[0, 100)** , $[100, 10^3)$, $[10^3, 10^4)$, $[10^4, 10^5)$, $[10^5, 10^6)$, $>10^6$                   	|
+|       Size      	| Size of the app(in MB)                  	| before standardization[0.01, 100]; after standardization[-0.95, 3.45]                         	|
+|     Installs    	| Number of user downloads/installs       	| **<1K**, 1~10K, 10~100K, 100K~1M, 1M~10M, 10M~100M, >100M                                     	|
+|       Type      	| Paid/Free                               	| Free; Paid                                                                                    	|
+|  Content Rating 	| Age group the app is targeted at        	| **17+**, Everyone, Everyone 10+, Teen                                                         	|
+| Current Version 	| Current version available on Play Store 	| Continuous; 0, 1, ..., 10                                                                     	|
+| Android Version 	| Min required Android version            	| **<2**, 3, 4, 5, >6                                                                           	|
+|       App       	| Application name                        	| -                                                                                             	|
+|   Last Updated  	| Date app last updated on Play Store     	| 2010.5 ~ 2018.8                                                                               	|
+|      Price      	| Price of the app                        	| Continuous       
+## Price
+In our dataset, there are two variables related to the price of the app: Price (continuous, the actual price) and Paid (discrete; Free/Paid). According to the plot on the left, the ratings are more varied for free apps and became less varied with the increase of price; from the plot on the right we can see that in general paid apps have higher and less varied ratings compared to free ones. 
+
+We decide to put Type instead of Price in our model because:
+
+* Few observations for apps over $10; might be outliers of the model
+* No significant difference in ratings for paid apps (see middle plot) 
+* May induce heteroskedasticity
+* Free/Paid is more important than actual price for both users and developers in decision making
+
+```{r,fig.width = 4, fig.height = 4, warning = FALSE, include = FALSE}
+##Price__________________________________________________________________________
+hist_top <- ggplot(google_new)+
+  geom_histogram(aes(Price), bins = 20, col = "white",
+                 fill = "forestgreen", alpha = 0.4)+
+  newtheme+labs(y = "",x = "")+
+  theme(axis.ticks = element_line(color = "white"),
+        panel.border = element_blank(),
+        axis.text = element_blank(),
+        axis.title.x = element_blank())
+
+hist_right <- ggplot(google_new)+
+  geom_histogram(aes(Rating), bins = 25, col = "white",
+                 fill = "lightblue", alpha = 0.6)+
+  coord_flip()+newtheme+labs(y = "",x = "")+
+  theme(axis.ticks = element_line(color = "white"),
+        panel.border = element_blank(),
+        axis.text.x = element_text(color = "white"),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank())
+
+empty <- ggplot()+geom_point(aes(1,1), colour="white")+
+         theme(axis.ticks=element_blank(), 
+               panel.background=element_blank(), 
+               axis.text.x=element_blank(), axis.text.y=element_blank(),           
+               axis.title.x=element_blank(), axis.title.y=element_blank())
+p_price<-ggplot(google_new)+
+  geom_point(aes(Price, Rating),size= 1, alpha = 0.7, col = "paleturquoise4")+
+  newtheme
+
+p_price_scatter<-grid.arrange(hist_top, empty, p_price, hist_right, 
+             ncol=2, nrow=2, widths=c(6, 1), heights=c(1, 6))
+
+#ggsave("Price.png",
+#       p_price_scatter, width = unit(4, "cm"),height = unit(4, "cm"),
+#       dpi = 900, device = png(type =  "cairo"))
+
+```
+
+```{r,fig.width = 10.8, fig.height = 3.6, warning = FALSE}
+Price_break<-quantile(google_new$Price[which(google_new$Price!=0)],
+                      probs = seq(0,1,0.2))
+Price_break[2:5]<-round(Price_break[2:5])
+
+
+Price_Paid_df<-google_new%>%
+  filter(Price != 0)%>%
+  mutate(Price_discrete = cut(Price, breaks = Price_break, include.lowest = TRUE))
+
+Price_Paid_df<-Price_Paid_df%>%
+  mutate(Price_discrete = factor(Price_discrete, 
+                 levels = c("0", levels(Price_Paid_df$Price_discrete))))
+
+Price_free_df<-google_new%>%
+  filter(Price == 0)%>%
+  mutate(Price_discrete = factor(0, levels = levels(Price_Paid_df$Price_discrete)))
+
+  
+p_price_discrete<-rbind(Price_free_df, Price_Paid_df)%>%
+  ggplot()+
+  geom_boxplot(aes(factor(Price_discrete), Rating, fill = Price_discrete), alpha = 0.4)+
+  scale_fill_viridis_d(begin = 1, end = 0.2)+
+  scale_color_viridis_d(begin = 1, end = 0.2)+
+  labs(x = "Price(Categorical)")+
+  scale_x_discrete(breaks = c(levels(Price_Paid_df$Price_discrete)),
+                   labels = c("0", "[1,1.3]", "(1.3,2.5]", "(2.5,3]","(3,5]", "(5,40]"))+
+  newtheme
+
+p_type<-ggplot(google_new)+
+  geom_boxplot(aes(Type, Rating, fill = Type), alpha = 0.4)+
+  scale_fill_viridis_d()+
+  newtheme
+
+p_price_type<-grid.arrange(p_price_scatter, p_price_discrete, p_type, ncol = 3)
+#ggsave("Price Type.png",
+#       p_price_type, width = unit(6, "cm"),height = unit(3, "cm"),
+#       dpi = 900, device = png(type =  "cairo"))
+```
+
+## Reviews
+From the plot we can see as the number of reviews increases, the mean of rating generally increases and the variation decreases. Since the Reviews has an extremely large range, we discretized Reviews into 6 categories; the size of each category is shown in the table below. 
+```{r,fig.width = 3.7, fig.height = 3.7, warning = FALSE}
+##Reviews______________________________________________________________________________
+hist_top <- ggplot(google_new)+
+  geom_histogram(aes(log(Reviews)), bins = 25, col = "white",
+                 fill = "forestgreen", alpha = 0.4)+
+  newtheme+labs(y = "",x = "")+
+  theme(axis.ticks = element_line(color = "white"),
+        panel.border = element_blank(),
+        axis.text = element_blank(),
+        axis.title.x = element_blank())
+
+p_reviews<-google_new%>%
+  ggplot()+
+  geom_point(aes(x = log(Reviews), y = Rating),size= 1, 
+             alpha = 0.7, col = "paleturquoise4")+
+  newtheme
+
+p_reviews_scatter<-grid.arrange(hist_top, empty, p_reviews, hist_right, 
+             ncol=2, nrow=2, widths=c(6, 1), heights=c(1, 6))
+
+#ggsave("Reviews.png",
+#       p_reviews_scatter, width = unit(4, "cm"),height = unit(4, "cm"),
+#       dpi = 900, device = png(type =  "cairo"))
+
+google_new%>%group_by(Reviews_discrete)%>%
+  summarise(Size = n(), `Mean Rating` = mean(Rating), 
+            `Median Rating` = median(Rating), `sd Rating` = sd(Rating))%>%
+  kable(format = 'markdown', align = 'c', digits = 2,
+        linesep = "")%>%
+  kable_styling(full_width = FALSE)
+```
+
+We can see the pattern holds after discretization: in groups with greater number of reviews the median of rating is higher and the standard deviation is lower.
+
+```{r,fig.width = 3, fig.height = 3}
+##Reviews_Discrete___________________________________________________________________
+p_reviews_discrete<-google_new%>%
+  ggplot()+
+  geom_boxplot(aes(x = Reviews_discrete, y = Rating, 
+                   fill = Reviews_discrete),alpha = 0.4)+
+  scale_x_discrete(breaks = levels(google_new$Reviews_discrete),
+                   labels = c(expression(paste("(0,", 10^2, "]", sep = "")),
+                              expression(paste("(", 10^2, ",", 10^3, "]", sep = "")),
+                              expression(paste("(", 10^3, ",", 10^4,"]", sep = "")),
+                              expression(paste("(", 10^4, ",", 10^5,"]", sep = "")),
+                              expression(paste("(", 10^5, ",", 10^6,"]", sep = "")),
+                              expression(paste("(", 10^6, ",", 10^7,"]", sep = ""))))+
+  scale_fill_viridis_d(begin = 1, end = 0)+
+  labs(x = "Reviews (Discrete)")+
+  theme_light(base_family = "Cambria")+
+  theme(panel.grid = element_blank(),
+        axis.title = element_text(size = 10), 
+        axis.text.y = element_text(size = 8),
+        axis.text.x = element_text(size = 7),
+        legend.position = "none", 
+        plot.title = element_text(size = 12, vjust = 0,hjust = 0.5, face = "bold"))
+
+p_reviews_discrete
+#ggsave("Reviews_discrete.png",
+#       p_reviews_discrete, width = unit(4, "cm"),height = unit(4, "cm"),
+#       dpi = 900, device = png(type =  "cairo"))
+```
+
+
+## Size
+The variation of rating discrease as size of the apps increases. Low ratings only occur among apps with sizes lower than 50 MB, yet rarely do apps over 50 MB have 5-star rating.
+
+```{r,fig.width=3.7,fig.height = 3.7, warning = FALSE}
+hist_top <- ggplot(google_new)+
+  geom_histogram(aes(Size), bins = 25, col = "white",
+                 fill = "forestgreen", alpha = 0.4)+
+  newtheme+labs(y = "",x = "")+
+  theme(axis.ticks = element_line(color = "white"),
+        panel.border = element_blank(),
+        axis.text = element_blank(),
+        axis.title.x = element_blank())
+
+##Size____________________________________________________________________________
+g_Size<-google_new%>%
+  ggplot()+labs(x = "Size(MB)")+
+  geom_point(aes(x = Size, y = Rating, col = Size),
+             size= 1, alpha = 0.7, col = "paleturquoise4")+
+  newtheme
+
+
+
+p_size<-grid.arrange(hist_top, empty, g_Size, hist_right, 
+             ncol=2, nrow=2, widths=c(6, 1), heights=c(1, 6))
+
+#ggsave("Size.png",
+#       p_size, width = unit(4, "cm"),height = unit(4, "cm"),
+#       dpi = 900, device = png(type =  "cairo"))
+```
+
+
+## Installs
+
+As is shown in the plot, the median of rating is in general higher in the groups with more intalls, though the differences are slight; the rating is also less variable in those groups.
+
+```{r, fig.width = 3, fig.height = 3.1}
+##Installs__________________________________________________________________________
+google_new%>%
+  group_by(Installs)%>%
+  summarise(n=n(),`Mean Rating`=mean(Rating),`Median Rating`=median(Rating),
+            `sd Rating` = sd(Rating))%>%
+  kable(align = 'lccc', digits = 2,linesep = "")%>%
+  kable_styling(position = 'center', full_width = FALSE)
+
+  
+google_new%>%
+  ggplot(aes(factor(Installs),Rating))+
+  geom_boxplot(aes(fill = Installs), alpha = 0.4)+
+  labs(x = "Installs")+
+  scale_x_discrete(breaks = c("<1K","1K~10K","10K~100K","100K~1M",
+                              "1M~10M","10M~100M",">100M"),
+                   labels = c("<1K","1K~\n10K","10K~\n100K",
+                              "100K~\n1M","1M~\n10M","10M~\n100M",">100M"))+
+  scale_fill_viridis_d(begin = 1, end = 0)+
+  newtheme+theme(legend.position = "none")
+
+#ggsave("Installs.png", width = unit(4, "cm"),height = unit(4, "cm"),
+#       dpi = 900, device = png(type =  "cairo"))
+```
+
+## Category
+There is only slight difference in the median rating of apps between different categories, though the rating of `Transpotation` category is relatively more variable compared to other catogories, with a large proportion of apps rating below 4. Besides, entertainment apps have relatively high and least variable ratings.
+
+```{r, fig.width= 3.5, fig.height = 3}
+g_category<-google_new%>%
+  ggplot(aes(factor(Category),Rating))+
+  geom_boxplot(aes(fill = Category), alpha = 0.4)+
+  scale_fill_viridis_d()+
+  geom_hline(yintercept = 4, col = "grey40", lty = 2)+
+  labs(x = "Category")+
+  coord_flip()+
+  newtheme
+g_category
+#ggsave("Category.png", width = unit(4, "cm"),height = unit(4, "cm"),
+#       dpi = 900, device = png(type =  "cairo"))
+```  
+
+## Current Version, Android Version and Content Rating
+
+Despite that the distribution of rating appears to be about the same in each strata of Current Version, Android Version and Content Rating, we decided to include them in the full model.
+
+```{r, fig.width = 4, fig.height=4}
+##Current.Ver_________________________________________________________________________
+g_CurrentVersion<-google_new%>%
+  ggplot(aes(factor(Current.Ver),Rating))+
+  geom_boxplot(aes(fill = factor(Current.Ver)), alpha = 0.4)+
+  scale_fill_viridis_d(begin = 1, end = 0)+
+  labs(x = "Current Version")+
+  newtheme
+```
+
+```{r, fig.width = 4, fig.height=4}
+##Android.Ver_________________________________________________________________________
+g_Android<-google_new%>%ggplot()+
+  geom_boxplot(aes(x = factor(Android.Ver), y = Rating, fill = factor(Android.Ver)), alpha = 0.4)+
+  scale_fill_viridis_d(begin = 1, end = 0)+
+  labs(x = "Android Version")+
+  newtheme
+```
+
+
+```{r, fig.width = 4, fig.height=4}
+##Content.Rating____________________________________________________________________
+g_ContentRating<-google_new%>%
+  ggplot(aes(factor(Content.Rating),Rating, fill = factor(Content.Rating)))+
+  geom_boxplot(alpha = 0.4)+
+  scale_fill_viridis_d()+
+  labs(x = "Content Rating")+
+  newtheme
+```
+
+
+```{r, fig.width = 9, fig.height = 3}
+g_others<-grid.arrange(g_CurrentVersion, g_Android,g_ContentRating, ncol = 3)
+#ggsave("CurrentVersion_Android_ContentRating.png", g_others, 
+#       width = unit(12, "cm"),height = unit(4, "cm"),
+#       dpi = 900, device = png(type =  "cairo"))
+```
+
+# Regression Analysis
+
+## Split Dataset into Training Set and Test Set
+
+We split the observations into a training set(70\%, 4617 observations) and a test set(30\%, 1980 observations).
+
+```{r}
+total.row=nrow(google_new)
+train.prop=0.7
+set.seed(1)
+train = sample(seq(total.row), total.row*train.prop, replace = FALSE)
+
+Train_set<-google_new[train, ]
+Test_set<-google_new[-train, ]
+cat("Size of Training Set",nrow(Train_set),"\n")
+cat("Size of Test Set:", nrow(Test_set))
+```
+
+## Full Model
+
+Firstly we fit full model to the training set using all of the variables discussed in Descriptive Statistics; there are 27 variables (including dummy variables created from categorical variables) in the full model.
+
+```{r}
+fit<-lm(Rating_scale~factor(Category)+factor(Reviews_discrete)+
+       Size_scale+factor(Installs)+Type+
+       factor(Content.Rating)+Current.Ver+Android.Ver,
+       data = Train_set)
+fit%>%tidy()%>%
+  kable(format = 'markdown', align = 'lccc', digits = 2,
+        linesep = "",caption = "Full Model Regression Results")%>%
+  kable_styling(full_width = FALSE)
+```
+
+## Model Selection
+
+### Model Selection Using Test Set (Best Subset Regression)
+
+We implemented exhaustive best subset regression on training set and obtained 27 models, each with $i$ variables ($i = 1, 2, ..., 27$). Then we fit 27 models to the test set and compute the RMSE of each model (shown in the plot below). Among all models, the model with 24 variables have the lowest RMSE.
+
+```{r, fig.width = 4, fig.height = 4.2}
+val.errors = rep(NA, 27)
+regfit<-regsubsets(Rating_scale~factor(Category)+factor(Reviews_discrete)+
+               Size_scale+factor(Installs)+Type+
+               factor(Content.Rating)+Current.Ver+Android.Ver, data = Train_set,
+               nvmax = NULL, method = "exhaustive")
+summary.out<-summary(regfit)
+
+test.mat = model.matrix(Rating_scale~factor(Category)+factor(Reviews_discrete)+
+               Size_scale+factor(Installs)+Type+
+               factor(Content.Rating)+Current.Ver+Android.Ver, data = Test_set) 
+#compute RMSE
+for (i in 1:27) {
+  coefi = coef(regfit, id = i)
+  pred = test.mat[, names(coefi)] %*% coefi
+  val.errors[i] = sqrt(mean((Test_set$Rating_scale - pred)^2))}
+
+
+p_bestsubset_valid<-ggplot()+
+  geom_line(aes(x = 1:length(val.errors), y = val.errors, col = "Test"))+
+  geom_line(aes(x = 1:length(val.errors), 
+                y = sqrt(regfit$rss[-1]/nrow(Train_set)), col = "Training"))+
+  geom_point(aes(x = 1:length(val.errors), y = val.errors, col = "Test"))+
+  geom_point(aes(x = 1:length(val.errors), 
+                 y = sqrt(regfit$rss[-1]/nrow(Train_set)),col = "Training"))+
+  geom_segment(aes(x = which.min(val.errors), xend = which.min(val.errors),
+               y = 0.89, yend = min(val.errors)),lty = 2, col = "grey40")+
+  geom_segment(aes(y = min(val.errors), yend = min(val.errors),
+               x = 0, xend = which.min(val.errors)),lty = 2, col = "grey40")+
+  geom_point(aes(x = which.min(val.errors), y = min(val.errors)),col = "red")+
+  coord_cartesian(expand = FALSE, xlim = c(0, 28),ylim = c(0.948, 1.002))+
+  scale_x_continuous(breaks = c(seq(5,25,5),which.min(val.errors)))+
+  scale_y_continuous(breaks = c(seq(0.94, 1, 0.02),
+                                round(min(val.errors),3)))+
+  labs(x = "Number of Variables", y = expression(RMSE))+
+  scale_color_manual(name = "",breaks = c("Test", "Training"),
+                       values = c("steelblue","grey30"))+
+  newtheme2
+p_bestsubset_valid
+ggsave("Best Subset(Test).png", p_bestsubset_valid, width = unit(4, "cm"),
+       height = unit(4.2, "cm"),
+       dpi = 900, device = png(type =  "cairo"))
+```
+
+### Model Selection Using Cross-Validation (Best Subset Regression, Ridge, LASSO)
+
+#### Best Subset Regression
+We implemented exhaustive best subset regression on training set, but this time used  10-fold cross validation to choose the best model. The size of each fold is given in the table below. 
+
+```{r, fig.width = 4, fig.height = 4, cache = TRUE}
+predict.regsubsets = function(object, newdata, id, ...) {
+    form = as.formula(object$call[[2]])
+    mat = model.matrix(form, newdata)
+    coefi = coef(object, id = id)
+    mat[, names(coefi)] %*% coefi}
+
+set.seed(11)
+folds = sample(rep(1:10, length = nrow(Train_set)))
+table(folds)
+
+cv.errors = matrix(NA, 10, 27)
+for (k in 1:10) {
+    for (i in 1:27) {
+        best.fit = regsubsets(Rating_scale~factor(Category)+factor(Reviews_discrete)+
+               Size_scale+factor(Installs)+Type+
+               factor(Content.Rating)+Current.Ver+Android.Ver, 
+               data = Train_set[folds != k, ], nvmax = NULL, 
+        method = "exhaustive")
+        pred = predict(best.fit, Train_set[folds == k, ], id = i)
+        cv.errors[k, i] = mean((Train_set$Rating_scale[folds == k] - pred)^2)
+    }
+}
+rmse.cv = sqrt(apply(cv.errors, 2, mean))
+```
+
+For model $i(i=1,2,...,27)$ we obtained 10 RMSE from each of the 10 folds, then calculated the mean RMSE
+$$
+RMSE_{i}=\frac{1}{10}\sum_{k=1}^{10}RMSE_{ik},
+$$
+which is shown in the figure below. From the plot we can see that the model with 21 variables has the lowest mean RMSE.
+
+```{r, fig.width = 4, fig.height = 3.6}
+p_bestsubset_cv<-ggplot()+
+  geom_line(aes(x = 1:length(rmse.cv), y = rmse.cv),col = "grey30")+
+  geom_point(aes(x = 1:length(rmse.cv), y = rmse.cv),col = "grey30")+
+  geom_segment(aes(x = which.min(rmse.cv), xend = which.min(rmse.cv),
+               y = 0.89, yend = min(rmse.cv)),lty = 2, col = "grey40")+
+  geom_segment(aes(y = min(rmse.cv), yend = min(rmse.cv),
+               x = 0, xend = which.min(rmse.cv)),lty = 2, col = "grey40")+
+  geom_point(aes(x = which.min(rmse.cv), y = min(rmse.cv)),col = "red")+
+  labs(x = "Number of Variables", y = "RMSE(CV)")+
+  coord_cartesian(expand = FALSE, xlim = c(0, 28),ylim = c(0.954, 1))+
+  scale_x_continuous(breaks = c(seq(5,25,5),which.min(rmse.cv)))+
+  scale_y_continuous(breaks = c(seq(0.94, 1, 0.02),
+                                round(min(rmse.cv),3)))+
+  newtheme
+p_bestsubset_cv
+ggsave("Best Subset(CV).png", p_bestsubset_cv, width = unit(4, "cm"),
+       height = unit(4, "cm"),
+       dpi = 900, device = png(type =  "cairo"))
+```
+
+
+#### Ridge regression
+
+Here we use 10-fold cross-validation to select the $\lambda$ for ridge regression that gives the most regularized model such that the cross-validation error is within one standard error of the minimum. The logarithm of the best lambda for Ridge is -2.437. Unlike LASSO, ridge only shrinking coefficients towards 0 and does not variable selection, so there are still 27 covariates in the model.
+
+```{r, fig.width=4, fig.height=4.5}
+Train_x=model.matrix(fit)[,-1]
+Train_y = Train_set$Rating_scale
+
+par(cex.lab = 0.85, family = "Cambria", cex.axis = 0.7, tck = NA, tcl = -0.2, 
+    mgp = c(2, 0.3, 0))
+
+
+fit.ridge.cv=cv.glmnet(Train_x, Train_y, #labmda = exp(seq(-4,-3,0.01)),
+                       alpha=0,family = "gaussian",intercept=FALSE)
+
+#png(filename = "Ridge_CV.png")
+p_ridge_cv<-plot(fit.ridge.cv,xvar = "lambda",label=TRUE)
+p_ridge_cv
+#dev.off()
+cat("1se log lambda:", log(fit.ridge.cv$lambda.1se), "\n")
+ridge.beta=coef(fit.ridge.cv,s="lambda.min")
+cat("Number of variables in ridge:", sum(ridge.beta!=0))
+```
+
+#### LASSO
+
+Here 10-fold cross-validation is implemented to to select $\lambda$ for LASSO that gives the most regularized model such that the cross-validation error is within one standard error of the minimum. The logarithm of the best lambda for LASSO is -3.949. Only 16 variables are kept in the regularized model.
+
+```{r, fig.width=4, fig.height=4.5}
+par(cex.lab = 0.85, family = "Cambria", cex.axis = 0.7, tck = NA, tcl = -0.2, 
+    mgp = c(2, 0.3, 0))
+fit.lasso.cv=cv.glmnet(Train_x, Train_y,alpha=1,family = "gaussian",
+                       intercept=FALSE)
+
+#png(filename = "LASSO_CV.png")
+p_lasso_cv<-plot(fit.lasso.cv)
+p_lasso_cv
+#dev.off()
+cat("1se log lambda:", log(fit.lasso.cv$lambda.1se),"\n")
+lasso.beta=coef(fit.lasso.cv)
+cat("Number of variables in LASSO:",sum(lasso.beta!=0))
+```
+
+## Model Comparison
+
+Below is a table of the names of full model and 4 reduced model as well as the number of variables of each model.
+
+|       Model Name      | Number of Variables |
+|:---------------------:|:-------------------:|
+| Full Model            |          27         |
+| Best Subset(Test Set) |          24         |
+| Best Subset(CV)       |          21         |
+| Ridge(CV)             |          27         |
+| LASSO(CV)             |          16         |
+
+### Model Evaluation
+
+We fit all of the five models to the test set and used Root Mean Squared Error(RMSE) and Mean Absolute Error(MAE) as metrics to evalute our models. Suppose $y_i$ is the actual value of the dependent variable and $\hat{y}_i$ is the predicted value, then
+
+$$
+RMSE = \sqrt{\frac{1}{n}\sum_{i=1}^n(\hat{y}_i-y_i)^2}
+$$
+$$
+MAE = \frac{1}{n}\sum_{i=1}^n|{\hat y}_i-y_i|
+$$
+
+From the table we can see that RMSE and MAE of full model, Best-Subset(Test Set) and Best-Subset(Cross Validation) are about the same and lower than those of Ridge(CV) and LASSO(CV). Among these models Best-Subset is the best in terms of prediction since it has the not only lowest RMSE and MAE but also relatively smaller number of variables.
+
+```{r}
+library(modelr)
+
+#Full model
+rmse_full<-rmse(fit, data = Test_set)
+mae_full<-mae(fit, data = Test_set)
+
+#Test (Best Subset)
+pred_bestsub = predict(regfit, Test_set, id = which.min(val.errors))
+rmse_valid<-min(val.errors)
+mae_valid<-mean(abs(Test_set$Rating_scale - pred_bestsub))
+rsae_full<-mae(fit, data = Test_set)
+
+#Best Subset(CV)
+pred_cv_bestsub = predict(regfit, Test_set, id = which.min(rmse.cv))
+rmse_cv_bestsub<-sqrt(mean((Test_set$Rating_scale - pred_cv_bestsub)^2))
+mae_cv_bestsub<-mean(abs(Test_set$Rating_scale - pred_cv_bestsub))
+
+#Ridge(CV)
+fit_test<-lm(formula = Rating_scale ~ factor(Category) + factor(Reviews_discrete) + 
+    Size_scale + factor(Installs) + Type + factor(Content.Rating) + 
+    Current.Ver + Android.Ver, data = Test_set)
+Test_x=model.matrix(fit_test)[,-1]
+pred_cv_ridge<-predict(fit.ridge.cv, s = "lambda.min", newx = Test_x)
+rmse_cv_ridge<-sqrt(mean((Test_set$Rating_scale - pred_cv_ridge)^2))
+mae_cv_ridge<-mean(abs(Test_set$Rating_scale - pred_cv_ridge))
+
+#Lasso(CV)
+pred_cv_lasso<-predict(fit.lasso.cv, s = "lambda.min", newx = Test_x)
+rmse_cv_lasso<-sqrt(mean((Test_set$Rating_scale - pred_cv_lasso)^2))
+mae_cv_lasso<-mean(abs(Test_set$Rating_scale - pred_cv_lasso))
+
+#__________________________________________________________________
+rmse_df<-data.frame(rmse_full,rmse_valid, rmse_cv_bestsub, 
+                    rmse_cv_ridge, rmse_cv_lasso)
+mae_df<-data.frame(mae_full,mae_valid, mae_cv_bestsub, 
+                    mae_cv_ridge, mae_cv_lasso)
+colnames(rmse_df)<-c("Full Model", "Best Subset", "Best Subset(CV)",
+                     "Ridge(CV)","LASSO(CV)")
+colnames(mae_df)<-c("Full Model", "Best Subset", "Best Subset(CV)",
+                     "Ridge(CV)","LASSO(CV)")
+
+metric_df<-rbind(rmse_df,mae_df)
+rownames(metric_df)<-c("RMSE","MAE")
+metric_df%>%
+  kable(format = 'markdown', align = 'c', digits = 3, linesep = "")%>%
+  kable_styling(full_width = FALSE)
+```
+
+### Coefficient Interpretation
+From the table below we can see that though three variables have been deleted, there are only slight differences between regression coefficient estimate of the Best Subset Model and the Full Model.
+
+* **Category (Baseline: Entertainment)**
+
+    Apps that belong to Information category have relatively higher overall ratings, followed by Entertainment; Transportation apps have the lowest average rating. Also in 3 of the 4 reduced models the level Lifestyle has been excluded, which means that the rating of Lifestyle apps does not have significant difference compared to baseline group (Entertainment).
+
+* **Reviews(Discrete) (Baseline: [0, 100])**
+    
+    Same as what we see in the boxplot in Descriptive Statistics, apps with larger number of reviews have higher overall ratings.
+
+* **Size**
+    
+    The overall ratings tend to be lower for large size apps compared to those of small file sizes, yet the association is not significant.
+    
+* **Installs (Baseline: <1K)**
+    
+    Surprisingly, all of the coefficients estimate of the dummy variables created from Installs are below 0 and the group with higher installs tend to have lower rating, which contradicts the pattern of the boxplot. One possible explanation is that the estimate were obtained after adjusting on other variables; high installs or downloads don't necessarily mean high rating. For example free apps often have higher number of installs than free apps because download is zero-cost, yet paid apps might have higher quality than free ones.
+
+* **Type (Baseline: Free)**
+
+    On average paid apps have higher overall ratings compared to free apps after adjusting for other factors.
+
+* **Content Rating (Baseline: 17+)**
+    
+    Apps belong to 17+ have the lowest overall rating compared to other groups.
+    
+* **Current.Ver**
+    
+    Apps with higher current version tend to have lower overall rating.
+    
+* **Android.Ver (Baseline: <2)**
+    
+    In most of the reduced models some levels of Android.Ver have been excluded, which means that min required android version is not important in terms of predicting overall rating.
+    
+```{r}
+coef_full<-fit$coefficients
+coef_valid<-coef(regfit,which.min(val.errors))
+coef_cv_bestsub<-coef(regfit,which.min(rmse.cv))
+
+coef_full_df<-data.frame(Var = names(coef_full), `Full Model` = unname(coef_full))
+coef_valid_df<-data.frame(Var = names(coef_valid), 
+                          Best_Subset = unname(coef_valid))
+coef_cv_bestsub_df<-data.frame(Var = names(coef_cv_bestsub), 
+                               Best_Subset_CV = unname(coef_cv_bestsub))
+coef_cv_ridge_df<-data.frame(Var = names(ridge.beta[,1]), 
+                               Ridge_CV = unname(ridge.beta[,1]))
+coef_cv_lasso_df<-data.frame(Var = names(ridge.beta[,1]), 
+                               LASSO_CV = unname(lasso.beta[,1]))
+
+coef_df<-coef_full_df%>%
+  left_join(coef_valid_df, by = "Var")%>%
+  left_join(coef_cv_bestsub_df, by = "Var")%>%
+  left_join(coef_cv_ridge_df, by = "Var")%>%
+  left_join(coef_cv_lasso_df, by = "Var")
+
+coef_df<-cbind(coef_df, p_value = round(summary(fit)$coefficients[,4],2))
+options(knitr.kable.NA = '-')
+coef_df%>%
+  mutate(LASSO_CV = ifelse(LASSO_CV==0, NA, LASSO_CV))%>%
+  mutate(Ridge_CV = ifelse(Ridge_CV==0, NA, Ridge_CV))%>%
+  mutate(Var = ifelse(substr(Var, start = 1, stop = 6)=="factor",
+                      substring(Var, first = 7),
+                      Var))%>%
+  kable(format = 'markdown', align = 'lcccccc', digits = 3,
+                     linesep = "",
+                     caption = "Regression Coefficient Estimate")%>%
+  kable_styling(full_width = FALSE)
+```
+
+## Limitations
+
+There still remains room of improvement of our model. For example we discovered the existence of heteroskedasticity in our data, but we didn't deal with it since it is beyond the scope of this course.
+
+```{r, fig.height = 3.5, fig.width = 7}
+jackknife_res<-rstudent(fit)
+p_res_intall<-ggplot(Train_set)+
+  geom_point(aes(x = Installs, y = jackknife_res), alpha = 0.7, size = 0.8,
+             col = "paleturquoise4")+
+  labs(y = "Jackknife Residuals")+
+  scale_x_discrete(breaks = c("<1K","1K~10K","10K~100K","100K~1M",
+                              "1M~10M","10M~100M",">100M"),
+                   labels = c("<1K","1K~\n10K","10K~\n100K",
+                              "100K~\n1M","1M~\n10M","10M~\n100M",">100M"))+
+  newtheme
+
+p_res_review<-ggplot(Train_set)+
+  geom_point(aes(x = Reviews_discrete, y = jackknife_res), alpha = 0.7, size = 0.8,
+             col = "paleturquoise4")+
+  scale_x_discrete(breaks = levels(google_new$Reviews_discrete),
+                   labels = c(expression(paste("(0,", 10^2, "]", sep = "")),
+                              expression(paste("(", 10^2, ",", 10^3, "]", sep = "")),
+                              expression(paste("(", 10^3, ",", 10^4,"]", sep = "")),
+                              expression(paste("(", 10^4, ",", 10^5,"]", sep = "")),
+                              expression(paste("(", 10^5, ",", 10^6,"]", sep = "")),
+                              expression(paste("(", 10^6, ",", 10^7,"]", sep = ""))))+
+
+  labs(y = "Jackknife Residuals")+
+  newtheme
+
+p_hetero<-grid.arrange(p_res_review, p_res_intall, ncol = 2)
+ggsave("heteroskedasticity.png", 
+       p_hetero, width = unit(8, "cm"),height = unit(4, "cm"),
+       dpi = 900, device = png(type =  "cairo"))
+
+```

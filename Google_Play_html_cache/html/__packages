@@ -1,0 +1,17 @@
+base
+dplyr
+knitr
+kableExtra
+gridExtra
+ggplot2
+stringr
+broom
+lubridate
+carData
+car
+leaps
+Matrix
+foreach
+glmnet
+bindrcpp
+modelr
