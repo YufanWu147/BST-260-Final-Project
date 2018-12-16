@@ -1,3 +1,3 @@
 # BST-260-Final-Project
 # BST-260-Final-Project
-If you knit the markdown file again some of the result may change
+Some of the results in the analysis may change when knit the Rmarkdown file again so so I also uploaded the cache files.
