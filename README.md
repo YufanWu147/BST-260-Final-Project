@@ -1,2 +1,3 @@
 # BST-260-Final-Project
-View HTML page for the project [**here**](https://htmlpreview.github.io/?https://github.com/YufanWu147/BST-260-Final-Project/blob/master/Google_Play_html.html)
+* [Project Website](https://yufanwu147.github.io/BST-260-Final-Project/)
+* [.Rmd file for the project](https://github.com/YufanWu147/BST-260-Final-Project/blob/master/index.Rmd)
