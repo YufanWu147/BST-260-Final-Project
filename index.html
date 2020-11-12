@@ -255,8 +255,8 @@ h3 { /* Header 3 */
 <h2><span class="header-section-number">4.2</span> Data Cleaning</h2>
 <p>Below are the steps of data cleaning</p>
 <ul>
-<li>Delete NAs in dataset</li>
-<li>There are some weird apps developed by the same company called “I am rich”; all of these apps have <code>Price</code> over $200. We decided to delete these observations.</li>
+<li>Remove missing values from the dataset</li>
+<li>Apps developed by a company called “I am rich” have abnormal <code>Price</code> (over $200). We decided to drop these observations.</li>
 </ul>
 <table>
 <thead>
@@ -302,10 +302,10 @@ h3 { /* Header 3 */
 </table>
 <ul>
 <li>Delete observations with “Varies with device” in <code>Size</code>, <code>Android Version</code> and <code>Current Version</code></li>
-<li>Unify the unit of <code>Size</code> (convert KB into MB); Covert <code>Size</code> from character to numeric (i.e. Delete the unit, e.g. 2.5M to 2.5)</li>
+<li>Unify the unit of <code>Size</code> (convert KB into MB); Covert <code>Size</code> from character to numeric (e.g. 2.5M to 2.5)</li>
 <li>Only keep the major number of <code>Android Version</code> (e.g. 6.1.2 to 6)</li>
-<li>Combined some levels of <code>Android Version</code> (1, 2 to “&lt;2”; 6, 7, 8 to “&gt;6”) since the sizes of some groups are too small</li>
-<li>Combined some levels of <code>Content.Rating</code> (‘Mature 17+’ and ‘Adults only 18+’ to ‘17+’) since the sizes of some groups are too small</li>
+<li>Combine some levels of <code>Android Version</code> (1, 2 to “&lt;2”; 6, 7, 8 to “&gt;6”) since the sizes of some groups are too small</li>
+<li>Combine some levels of <code>Content.Rating</code> (‘Mature 17+’ and ‘Adults only 18+’ to ‘17+’) since the sizes of some groups are too small</li>
 <li>Reorder and then combine levels of <code>Installs</code></li>
 </ul>
 <table>
@@ -347,7 +347,7 @@ h3 { /* Header 3 */
 </tbody>
 </table>
 <ul>
-<li>Combined some levels of <code>Category</code></li>
+<li>Combine some levels of <code>Category</code></li>
 </ul>
 <table>
 <colgroup>
@@ -1046,7 +1046,7 @@ MAE = \frac{1}{n}\sum_{i=1}^n|{\hat y}_i-y_i|
 </div>
 <div id="coefficient-interpretation" class="section level3">
 <h3><span class="header-section-number">6.4.2</span> Coefficient Interpretation</h3>
-<p>From the table below we can see that though three variables have been deleted, there are only slight differences between regression coefficient estimate of the Best Subset Model and the Full Model.</p>
+<p>From the table below we can see that though three variables have been removed, there are only slight differences between regression coefficient estimate of the Best Subset Model and the Full Model.</p>
 <ul>
 <li><p><strong>Category (Baseline: Entertainment)</strong></p>
 <p>Apps that belong to Information category have relatively higher overall ratings, followed by Entertainment; Transportation apps have the lowest average rating. Also in 3 of the 4 reduced models the level Lifestyle has been excluded, which means that the rating of Lifestyle apps does not have significant difference compared to baseline group (Entertainment).</p></li>
